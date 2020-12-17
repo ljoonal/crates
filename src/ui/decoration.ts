@@ -9,7 +9,12 @@ import {
   MarkdownString,
 } from "vscode";
 
-import { completeVersion, versionInfo } from "../semver/semverUtils";
+import {
+  diff as semverDiff,
+  maxSatisfying as semverMaxSatisfying,
+  validRange as semverValidRange,
+  parse as semverParse
+} from "semver";
 import Item from "../core/Item";
 import { status, ReplaceItem } from "../toml/commands";
 
@@ -42,8 +47,34 @@ export default function decoration(
   const endofline = editor.document.lineAt(editor.document.positionAt(item.end)).range.end;
   const decoPosition = editor.document.offsetAt(endofline);
   const end = item.end;
-  const currentVersion = completeVersion(item.value);
-  const semDiff = versionInfo(item.value, versions[0]);
+
+  if (item.value === undefined) throw new Error("The version needs to be specified for the dependency");
+  const itemValue = item.value.trim();
+
+  const latestVersion = semverParse(versions[0]);
+  if (latestVersion === null) throw new Error("Parsing the SemVer of the latest release failed.");
+
+
+  // Cargo treats plain versions the same way as with caret, see:
+  // https://doc.rust-lang.org/cargo/reference/resolver.html#semver-compatibility
+  // So we test if the version is a plain one, and if so add a ^ before it, otherwise just use it's value
+  let currVersionRange = (/\d+(.\d+){0,2}/.test(itemValue[0]) ? "^" : "") + itemValue;
+
+  // Validating the range.
+  currVersionRange = semverValidRange(currVersionRange);
+
+  if (currVersionRange === null) throw new Error("Could not parse semver of dependency");
+
+  // How big is the semver difference between the latest version & current range supported.
+  let semDiff = null;
+
+  // Get the max possible version from the versions. (Simplifying, cargo actually matches ranges with other deps)
+  const maxCurrVersion = semverMaxSatisfying(versions, currVersionRange);
+
+  if (maxCurrVersion !== null) {
+    semDiff = semverDiff(latestVersion, maxCurrVersion)
+  } // If there are no supported versions for current semver
+  else semDiff = "major";
 
   const hoverMessage = error ? new MarkdownString(`**${error}**`) : new MarkdownString(`#### Versions`);
   hoverMessage.appendMarkdown(` _( [Check Reviews](https://web.crev.dev/rust-reviews/crate/${item.key.replace(/"/g, "")}) )_`);
@@ -64,7 +95,7 @@ export default function decoration(
       start,
       end,
     };
-    const isCurrent = version === currentVersion;
+    const isCurrent = version === currVersionRange;
     const encoded = encodeURI(JSON.stringify(replaceData));
     const docs = (i === 0 || isCurrent) ? `[(docs)](https://docs.rs/crate/${item.key}/${version})` : "";
     const command = `${isCurrent ? "**" : ""}[${version}](command:crates.replaceVersion?${encoded})${docs}${isCurrent ? "**" : ""}`;
