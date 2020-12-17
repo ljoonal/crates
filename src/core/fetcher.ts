@@ -3,7 +3,7 @@ import Dependency from "./Dependency";
 import { statusBarItem } from "../ui/indicators";
 import { versions as loVersions, checkCargoRegistry } from "../api/local_registry";
 import { versions as ghVersions } from "../api/github";
-import compareVersions from "../semver/compareVersions";
+import { compare as compareVersions } from "semver";
 
 export function fetchCrateVersions(
   dependencies: Item[],
